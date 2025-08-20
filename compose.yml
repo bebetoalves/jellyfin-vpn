@@ -1,0 +1,89 @@
+services:
+
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.le.acme.httpChallenge.entryPoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - external
+
+  jellyfin:
+    image: linuxserver/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${JELLYFIN_CONFIG}:/config
+      - ${MEDIA_PATH}:/media:ro
+      - ${JELLYFIN_CACHE}:/cache
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.jellyfin.entrypoints=websecure"
+      - "traefik.http.routers.jellyfin.tls.certresolver=le"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+    depends_on:
+      rclone:
+        condition: service_healthy
+    networks:
+      - external
+
+  rclone:
+    image: rclone/rclone:latest
+    container_name: rclone
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ${RCLONE_CONFIG}:/config/rclone:rw
+      - ${MEDIA_PATH}:/media:rshared
+    command: >
+      mount ${RCLONE_REMOTE}: /media
+      --allow-non-empty
+      --allow-other
+      --buffer-size ${RCLONE_BUFFER_SIZE}
+      --dir-cache-time ${RCLONE_DIR_CACHE_TIME}
+      --drive-chunk-size ${RCLONE_DRIVE_CHUNK_SIZE}
+      --vfs-cache-mode ${RCLONE_VFS_MODE}
+      --vfs-read-chunk-size ${RCLONE_VFS_READ_CHUNK_SIZE}
+      --vfs-read-chunk-size-limit ${RCLONE_VFS_READ_CHUNK_SIZE_LIMIT}
+      --umask 002
+      --log-level INFO
+    healthcheck:
+      test: ["CMD", "mountpoint", "-q", "/media"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - external
+
+networks:
+  external:
+    driver: bridge

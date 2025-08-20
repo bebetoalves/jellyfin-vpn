@@ -1,0 +1,3 @@
+# ignore sensitive files
+rclone/rclone.conf
+letsencrypt/acme.json

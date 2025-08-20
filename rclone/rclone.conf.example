@@ -1,0 +1,7 @@
+[gdrive]
+type = drive
+client_id = 
+client_secret = 
+scope = drive.readonly
+token = 
+team_drive = 
